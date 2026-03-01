@@ -118,11 +118,15 @@ static inline uint32_t ams_rsv_pack(uint8_t filament_idx, uint8_t loaded_ch)
            (0xA5u << 24);
 }
 
+/**
+ * @brief Write filament info without state coupling to prevent Page 2 wear.
+ */
 bool Flash_AMS_filament_write(uint8_t filament_idx, const Flash_FilamentInfo* info, uint8_t loaded_ch)
 {
     if (!info || filament_idx >= 4) return false;
 
-    const uint32_t rsv = ams_rsv_pack(filament_idx, loaded_ch);
+    // Force 0xFFu in rsv field to decouple Page 2-5 from loaded_ch status.
+    const uint32_t rsv = ams_rsv_pack(filament_idx, 0xFFu); 
     return nvm256_write(ams_fil_page(filament_idx), MAGIC_FIL, VER_1, rsv, info, (uint16_t)sizeof(*info));
 }
 
@@ -146,43 +150,62 @@ bool Flash_AMS_filament_clear(uint8_t filament_idx)
     return flash256_erase(ams_fil_page(filament_idx));
 }
 
+/**
+ * @brief Search for the latest loaded_ch record using rolling pages (Page 6-15).
+ */
 bool Flash_AMS_state_read(uint8_t* loaded_ch)
 {
     if (!loaded_ch) return false;
-
-    Flash_FilamentInfo tmp{};
-    uint16_t got = 0;
-    uint32_t rsv = 0;
-
-    if (!nvm256_read(ams_fil_page(0), MAGIC_FIL, VER_1,
-                     &tmp, (uint16_t)sizeof(tmp), &got, &rsv))
-        return false;
-
-    if (got != sizeof(tmp)) return false;
-
-    const uint8_t marker = (uint8_t)((rsv >> 24) & 0xFFu);
-    if (marker != 0xA5u) {
-        *loaded_ch = 0xFFu;
-        return true;
+    
+    uint8_t ch = 0xFFu; // Default to unloaded
+    
+    // Scan from Page 15 down to Page 6 to find the newest record
+    for (int p = 15; p >= 6; p--) {
+        uint32_t addr = FLASH_NVM_BASE_ADDR + (uint32_t)(p * 256);
+        uint16_t got = 0; 
+        uint32_t rsv = 0;
+        
+        // nvm256_read performs CRC32 and Magic check internally
+        if (nvm256_read(addr, MAGIC_STA, VER_1, nullptr, 0, &got, &rsv)) {
+            ch = (uint8_t)(rsv & 0xFFu);
+            break; // Latest valid record found
+        }
     }
-
-    uint8_t ch = (uint8_t)((rsv >> 16) & 0xFFu);
-    if (ch >= 4u) ch = 0xFFu;
-
+    
     *loaded_ch = ch;
     return true;
 }
 
+/**
+ * @brief Write loaded_ch with a rolling-page wear leveling mechanism.
+ */
 bool Flash_AMS_state_write(uint8_t loaded_ch, const Flash_FilamentInfo* filament0_info)
 {
-    if (!filament0_info) return false;
-    if (loaded_ch < 4u || loaded_ch == 0xFFu) {
-        const uint32_t rsv = ams_rsv_pack(0u, loaded_ch);
-        return nvm256_write(ams_fil_page(0), MAGIC_FIL, VER_1, rsv, filament0_info, (uint16_t)sizeof(*filament0_info));
+    (void)filament0_info; 
+    
+    if (!(loaded_ch < 4u || loaded_ch == 0xFFu)) return false;
+
+    int target_p = -1;
+    // Find the first empty page (0xFFFFFFFF) in the pool
+    for (int p = 6; p <= 15; p++) {
+        uint32_t addr = FLASH_NVM_BASE_ADDR + (uint32_t)(p * 256);
+        if (*(volatile uint32_t*)addr == 0xFFFFFFFFu) {
+            target_p = p;
+            break;
+        }
     }
 
-    const uint32_t rsv = ams_rsv_pack(0u, 0xFFu);
-    return nvm256_write(ams_fil_page(0), MAGIC_FIL, VER_1, rsv, filament0_info, (uint16_t)sizeof(*filament0_info));
+    // If pool is full, perform a full sweep of Page 6-15 (approx. 20ms)
+    if (target_p == -1) {
+        for (int p = 6; p <= 15; p++) {
+            flash256_erase(FLASH_NVM_BASE_ADDR + (uint32_t)(p * 256));
+        }
+        target_p = 6;
+    }
+
+    uint32_t addr = FLASH_NVM_BASE_ADDR + (uint32_t)(target_p * 256);
+    // Write state using nvm256_write for built-in CRC protection
+    return nvm256_write(addr, MAGIC_STA, VER_1, (uint32_t)loaded_ch, nullptr, 0);
 }
 
 struct alignas(4) Flash_CAL_payload

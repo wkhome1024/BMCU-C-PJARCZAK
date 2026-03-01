@@ -21,6 +21,7 @@ static constexpr uint32_t MAGIC_FIL = 0x314C4946u; // 'FIL1'
 static constexpr uint32_t MAGIC_CAL = 0x324C4143u; // 'CAL2'
 static constexpr uint32_t MAGIC_MOT = 0x31544F4Du; // 'MOT1'
 static constexpr uint16_t VER_1     = 0x0001u;
+static constexpr uint32_t MAGIC_STA = 0x31415453u; // 'STA1' (State)
 
 struct __attribute__((packed, aligned(4))) NVM256_HDR
 {
