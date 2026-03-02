@@ -161,5 +161,4 @@ extern void bus_init();
 #define host_device_type_none 0x0000
 #define host_device_type_ahub 0x0001
 #define host_device_type_ams 0x0700
-#define host_device_type_ams_lite 0x1200
 extern uint16_t bus_host_device_type;

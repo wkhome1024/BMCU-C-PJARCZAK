@@ -36,7 +36,7 @@ void RGB_update()
     if (!period)
     {
         const uint32_t tpm = time_hw_ticks_per_ms();
-        uint64_t p = (uint64_t)tpm * 50ull;           // 50ms
+        uint64_t p = (uint64_t)tpm * 10ull;
         period = (p ? p : 1ull);
     }
 
@@ -88,8 +88,8 @@ static inline void flashinfo_to_ram(uint8_t fil, const Flash_FilamentInfo* i)
     f.temperature_min = i->temperature_min;
     f.temperature_max = i->temperature_max;
 
-    memset(f.name, 0, sizeof(f.name));       // 20B
-    memcpy(f.name, i->name, sizeof(i->name)); // 16B
+    memset(f.name, 0, sizeof(f.name));
+    memcpy(f.name, i->name, sizeof(i->name));
     f.name[19] = 0;
 
     memcpy(&a->filament[fil], &f, sizeof(f));
@@ -155,10 +155,8 @@ static void ams_state_save_run()
         g_state_dirty = 0;
 }
 
-
 void ams_datas_save_run()
 {
-    // zapisuje max 1 stronę (256B) na iterację pętli
     if (!g_fil_dirty) return;
 
     uint8_t fil = 0xFF;
@@ -170,7 +168,6 @@ void ams_datas_save_run()
     Flash_FilamentInfo now;
     ram_to_flashinfo(fil, &now);
 
-    // jeśli brak zmian, Flash_AMS_filament_write -> flash256_prog() zrobi memcmp i zwróci true bez erase/program
     if (Flash_AMS_filament_write(fil, &now, g_loaded_ch))
         g_fil_dirty &= ~(1u << fil);
 }
@@ -246,7 +243,6 @@ int main(void)
         bus_port_to_host.send_package();
 
         static int error = 0;
-        const uint16_t device_type = bambubus_ams_address;
 
         if ((ahub_stu != ahubus_package_type::none) || (bambubus_stu != bambubus_package_type::none))
         {
@@ -257,13 +253,11 @@ int main(void)
                 if (bambubus_stu == bambubus_package_type::heartbeat)
                 {
                     SYS_RGB.set_RGB(0x38, 0x35, 0x32, 0);
-                    if (device_type == host_device_type_ams_lite) bus_host_device_type = host_device_type_ams_lite;
-                    else if (device_type == host_device_type_ams)  bus_host_device_type = host_device_type_ams;
+                    bus_host_device_type = host_device_type_ams;
                 }
 
                 if (ahub_stu == ahubus_package_type::heartbeat)
                 {
-                    SYS_RGB.set_RGB(0x00, 0x10, 0x00, 0);
                     bus_host_device_type = host_device_type_ahub;
                 }
 

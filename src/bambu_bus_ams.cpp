@@ -123,26 +123,12 @@ bambubus_package_type get_packge_type(unsigned char *buf, int length)
     {
         if (length < 15) return bambubus_package_type::none;
         bambubus_long_package_analysis(buf, length, &printer_data_long);
-        if (printer_data_long.target_address == host_device_type_ams)
-        {
-#ifdef AMS_type_ams
-            bambubus_ams_address = host_device_type_ams;
-#else
-            return bambubus_package_type::none;
-#endif
-        }
-        else if (printer_data_long.target_address == host_device_type_ams_lite)
-        {
-#ifdef AMS_type_ams_lite
-            bambubus_ams_address = host_device_type_ams_lite;
-#else
-            return bambubus_package_type::none;
-#endif
-        }
-        else
+        if (printer_data_long.target_address != host_device_type_ams)
         {
             return bambubus_package_type::none;
         }
+
+        bambubus_ams_address = host_device_type_ams;
 
         switch (printer_data_long.type)
         {
@@ -182,334 +168,245 @@ uint8_t get_filament_left_char(_ams *ams)
     return data;
 }
 
-static uint32_t time_last_fil_ticks[4]      = {};
 static uint32_t time_sendout_onuse_ticks[4] = {};
-bool set_motion(unsigned char read_num, unsigned char statu_flags, unsigned char fliment_motion_flag, uint8_t ams_num)
-{
-    uint32_t time_used = 0;
+ bool set_motion(unsigned char read_num, unsigned char statu_flags, unsigned char fliment_motion_flag, uint8_t ams_num)
+ {
+     _ams *ams_ptr = &ams[bambubus_ams_map[ams_num]];
 
-    if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM && read_num < 4)
-    {
-        const uint32_t now = time_ticks32();
-        uint32_t &tl = time_last_fil_ticks[read_num];
+     if (bambubus_ams_address == host_device_type_ams) // AMS08
+     {
+         if (read_num < 4)
+         {
+             const uint8_t ch = (uint8_t)read_num;
 
-        const uint32_t dt_ticks = (tl == 0) ? 0u : (uint32_t)(now - tl);
-        tl = now;
+             const bool is_send_out      = ((statu_flags == 0x03) && (fliment_motion_flag == 0x00));
+             const bool is_before_on_use = ((statu_flags == 0x09) && (fliment_motion_flag == 0xA5));
+             const bool is_stop_on_use   = ((statu_flags == 0x07) && (fliment_motion_flag == 0x00));
+             const bool is_on_use        = ((statu_flags == 0x07) && (fliment_motion_flag == 0x7F));
+             const bool is_before_pullb  = ((statu_flags == 0x09) && (fliment_motion_flag == 0x3F));
 
-        time_used = (time_hw_tpms ? (dt_ticks / time_hw_tpms) : 0u);
-        if (time_used > 1000u) time_used = 0u;
-    }
+             uint32_t &t_sendout_onuse = time_sendout_onuse_ticks[ch];
 
-    _ams *ams_ptr = &ams[bambubus_ams_map[ams_num]];
+             uint8_t loaded = 0xFFu;
+             bool allow_any = true;
+             bool allow_stop = true;
 
-    if (bambubus_ams_address == host_device_type_ams) // AMS08
-    {
-        if (read_num < 4)
-        {
-            const uint8_t ch = (uint8_t)read_num;
+             if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
+             {
+                 loaded = ams_state_get_loaded();
+                 allow_any  = (loaded == 0xFFu) || (loaded == ch);
+                 allow_stop = (loaded == ch);
+             }
 
-            const bool is_send_out      = ((statu_flags == 0x03) && (fliment_motion_flag == 0x00));
-            const bool is_before_on_use = ((statu_flags == 0x09) && (fliment_motion_flag == 0xA5));
-            const bool is_stop_on_use   = ((statu_flags == 0x07) && (fliment_motion_flag == 0x00));
-            const bool is_on_use        = ((statu_flags == 0x07) && (fliment_motion_flag == 0x7F));
-            const bool is_before_pullb  = ((statu_flags == 0x09) && (fliment_motion_flag == 0x3F));
+             const bool accept =
+                 (is_send_out) ||
+                 (is_before_on_use && allow_any) ||
+                 (is_on_use        && allow_any) ||
+                 (is_stop_on_use   && allow_stop) ||
+                 (is_before_pullb  && allow_stop);
 
-            uint32_t &t_sendout_onuse = time_sendout_onuse_ticks[ch];
+             if (accept)
+             {
+                 if (ams_ptr->now_filament_num != ch)
+                 {
+                     if (ams_ptr->now_filament_num < 4)
+                     {
+                         const uint8_t prev = ams_ptr->now_filament_num;
+                         ams_ptr->filament[prev].motion = _filament_motion::idle;
+                         ams_ptr->filament_use_flag = 0x00;
+                         ams_ptr->pressure = 0xFFFF;
 
-            uint8_t loaded = 0xFFu;
-            bool allow_any = true;
-            bool allow_stop = true;
+                         time_sendout_onuse_ticks[prev] = 0u;
+                     }
+                     bus_now_ams_num = bambubus_ams_map[ams_num];
+                     ams_ptr->now_filament_num = ch;
+                 }
+             }
 
-            if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
-            {
-                loaded = ams_state_get_loaded();
-                allow_any  = (loaded == 0xFFu) || (loaded == ch);
-                allow_stop = (loaded == ch);
-            }
+             if (is_send_out)
+             {
+                 t_sendout_onuse = 0u;
 
-            const bool accept =
-                (is_send_out) ||
-                (is_before_on_use && allow_any) ||
-                (is_on_use        && allow_any) ||
-                (is_stop_on_use   && allow_stop) ||
-                (is_before_pullb  && allow_stop);
+                 if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
+                 {
+                     const _filament_motion prev = ams_ptr->filament[ch].motion;
 
-            if (accept)
-            {
-                if (ams_ptr->now_filament_num != ch)
-                {
-                    if (ams_ptr->now_filament_num < 4)
-                    {
-                        const uint8_t prev = ams_ptr->now_filament_num;
-                        ams_ptr->filament[prev].motion = _filament_motion::idle;
-                        ams_ptr->filament_use_flag = 0x00;
-                        ams_ptr->pressure = 0xFFFF;
+                     if (prev != _filament_motion::send_out && ams_state_get_loaded() != 0xFFu)
+                         ams_state_set_unloaded(0xFFu);
+                 }
 
-                        time_sendout_onuse_ticks[prev] = 0u;
-                    }
-                    bus_now_ams_num = bambubus_ams_map[ams_num];
-                    ams_ptr->now_filament_num = ch;
-                }
-            }
+                 ams_ptr->filament[ch].motion = _filament_motion::send_out;
+                 ams_ptr->pressure = 0x4700;
+             }
+             else if (is_before_on_use)
+             {
+                 t_sendout_onuse = 0u;
 
-            if (is_send_out)
-            {
-                t_sendout_onuse = 0u;
+                 if (!allow_any) return true;
 
-                if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
-                {
-                    const _filament_motion prev = ams_ptr->filament[ch].motion;
+                 const _filament_motion prev = ams_ptr->filament[ch].motion;
 
-                    if (prev != _filament_motion::send_out && ams_state_get_loaded() != 0xFFu)
-                        ams_state_set_unloaded(0xFFu);
-                }
+                 ams_ptr->filament[ch].motion = _filament_motion::before_on_use;
+                 ams_ptr->filament_use_flag   = 0x04;
+                 ams_ptr->pressure = (prev == _filament_motion::send_out) ? 0x4700 : 0x2B00;
 
-                ams_ptr->filament[ch].motion = _filament_motion::send_out;
-                ams_ptr->filament_use_flag   = 0x02;
-                ams_ptr->pressure            = 0x4700;
-            }
-            else if (is_before_on_use)
-            {
-                t_sendout_onuse = 0u;
+                 if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
+                     ams_state_set_loaded(ch);
+             }
+             else if (is_stop_on_use)
+             {
+                 t_sendout_onuse = 0u;
 
-                if (!allow_any) return true;
+                 if (!allow_stop) return true;
 
-                const _filament_motion prev = ams_ptr->filament[ch].motion;
+                 const _filament_motion prev = ams_ptr->filament[ch].motion;
 
-                ams_ptr->filament[ch].motion = _filament_motion::before_on_use;
-                ams_ptr->filament_use_flag   = 0x04;
-                ams_ptr->pressure = (prev == _filament_motion::send_out) ? 0x4700 : 0x2B00;
+                 if (prev == _filament_motion::on_use ||
+                     prev == _filament_motion::before_on_use)
+                 {
+                     ams_ptr->filament[ch].motion = _filament_motion::stop_on_use;
+                 }
 
-                if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
-                    ams_state_set_loaded(ch);
-            }
-            else if (is_stop_on_use)
-            {
-                t_sendout_onuse = 0u;
+                 ams_ptr->filament_use_flag   = 0x04;
+                 ams_ptr->pressure = (prev == _filament_motion::send_out) ? 0x4700 : 0x2B00;
+             }
+             else if (is_on_use)
+             {
+                 if (!allow_any) return true;
 
-                if (!allow_stop) return true;
+                 const _filament_motion prev = ams_ptr->filament[ch].motion;
 
-                const _filament_motion prev = ams_ptr->filament[ch].motion;
+                 if (prev == _filament_motion::send_out)
+                 {
+                     if (time_hw_tpms != 0u)
+                     {
+                         const uint32_t now = time_ticks32();
+                         if (t_sendout_onuse == 0u) t_sendout_onuse = now;
 
-                if (prev == _filament_motion::on_use ||
-                    prev == _filament_motion::before_on_use)
-                {
-                    ams_ptr->filament[ch].motion = _filament_motion::stop_on_use;
-                }
+                         const uint32_t dt  = (uint32_t)(now - t_sendout_onuse);
+                         const uint32_t lim = 5000u * (uint32_t)time_hw_tpms;
 
-                ams_ptr->filament_use_flag   = 0x04;
-                ams_ptr->pressure = (prev == _filament_motion::send_out) ? 0x4700 : 0x2B00;
-            }
-            else if (is_on_use)
-            {
-                if (!allow_any) return true;
+                         if (dt < lim)
+                         {
+                             ams_ptr->filament_use_flag = 0x04;
+                             ams_ptr->pressure          = 0x4700;
+                             return true;
+                         }
 
-                const _filament_motion prev = ams_ptr->filament[ch].motion;
+                         t_sendout_onuse = 0u;
+                     }
+                     else
+                     {
+                         ams_ptr->filament_use_flag = 0x04;
+                         ams_ptr->pressure          = 0x4700;
+                         return true;
+                     }
+                 }
 
-                if (prev == _filament_motion::send_out)
-                {
-                    if (time_hw_tpms != 0u)
-                    {
-                        const uint32_t now = time_ticks32();
-                        if (t_sendout_onuse == 0u) t_sendout_onuse = now;
+                 t_sendout_onuse = 0u;
 
-                        const uint32_t dt  = (uint32_t)(now - t_sendout_onuse);
-                        const uint32_t lim = 5000u * (uint32_t)time_hw_tpms;
+                 ams_ptr->filament[ch].motion = _filament_motion::on_use;
+                 ams_ptr->filament_use_flag   = 0x04;
 
-                        if (dt < lim)
-                        {
-                            ams_ptr->filament_use_flag = 0x04;
-                            ams_ptr->pressure          = 0x4700;
-                            return true;
-                        }
+                 if (ams_ptr->pressure != 0xF06Fu)
+                     ams_ptr->pressure = 0x2B00;
 
-                        t_sendout_onuse = 0u;
-                    }
-                    else
-                    {
-                        ams_ptr->filament_use_flag = 0x04;
-                        ams_ptr->pressure          = 0x4700;
-                        return true;
-                    }
-                }
+                 if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
+                     ams_state_set_loaded(ch);
+             }
+             else if (is_before_pullb)
+             {
+                 t_sendout_onuse = 0u;
 
-                t_sendout_onuse = 0u;
+                 if (!allow_stop) return true;
 
-                ams_ptr->filament[ch].motion = _filament_motion::on_use;
-                ams_ptr->filament_use_flag   = 0x04;
-                ams_ptr->pressure            = 0x2B00;
+                 const _filament_motion prev = ams_ptr->filament[ch].motion;
 
-                if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
-                    ams_state_set_loaded(ch);
-            }
-            else if (is_before_pullb)
-            {
-                t_sendout_onuse = 0u;
+                 if (prev == _filament_motion::on_use ||
+                     prev == _filament_motion::before_on_use ||
+                     prev == _filament_motion::stop_on_use)
+                 {
+                     ams_ptr->filament[ch].motion = _filament_motion::before_pull_back;
+                 }
 
-                if (!allow_stop) return true;
+                 ams_ptr->filament_use_flag = 0x04;
+                 ams_ptr->pressure = 0x2B00;
 
-                const _filament_motion prev = ams_ptr->filament[ch].motion;
+                 if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
+                     ams_state_set_unloaded(ch);
+             }
+             else if (statu_flags == 0x09)
+             {
+                 t_sendout_onuse = 0u;
 
-                if (prev == _filament_motion::on_use ||
-                    prev == _filament_motion::before_on_use ||
-                    prev == _filament_motion::stop_on_use)
-                {
-                    ams_ptr->filament[ch].motion = _filament_motion::before_pull_back;
-                }
+                 ams_ptr->filament_use_flag = 0x04;
+                 ams_ptr->pressure = 0x2B00;
+             }
+         }
+         else if (read_num == 0xFF)
+         {
+             if ((statu_flags == 0x03) && (fliment_motion_flag == 0x00)) // wejście w pull_back
+             {
+                 if (ams_ptr->now_filament_num < 4)
+                 {
+                     const uint8_t ch = ams_ptr->now_filament_num;
+                     const _filament_motion m = ams_ptr->filament[ch].motion;
 
-                ams_ptr->filament_use_flag = 0x04;
-                ams_ptr->pressure = 0x2B00;
+                     time_sendout_onuse_ticks[ch] = 0u;
 
-                if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
-                    ams_state_set_unloaded(ch);
-            }
-            else if (statu_flags == 0x09)
-            {
-                t_sendout_onuse = 0u;
+                     if (m == _filament_motion::before_pull_back ||
+                         m == _filament_motion::on_use ||
+                         m == _filament_motion::before_on_use ||
+                         m == _filament_motion::stop_on_use)
+                     {
+                         ams_ptr->filament[ch].motion = _filament_motion::pull_back;
+                         ams_ptr->filament_use_flag   = 0x02;
+                     }
+                        ams_ptr->pressure = 0x4700;
 
-                ams_ptr->filament_use_flag = 0x04;
-                ams_ptr->pressure          = 0x2B00;
-            }
-        }
-        else if (read_num == 0xFF)
-        {
-            if ((statu_flags == 0x03) && (fliment_motion_flag == 0x00)) // wejście w pull_back
-            {
-                if (ams_ptr->now_filament_num < 4)
-                {
-                    const uint8_t ch = ams_ptr->now_filament_num;
-                    const _filament_motion m = ams_ptr->filament[ch].motion;
+                     if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
+                         ams_state_set_unloaded(ch);
+                 }
+             }
+             else if (statu_flags == 0x01)
+             {
+                 if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
+                 {
+                     const uint8_t ch = ams_ptr->now_filament_num;
+                     if (ch < 4 && ams_ptr->filament_use_flag != 0x04)
+                         ams_state_set_unloaded(ch);
+                 }
+             }
+             else
+             {
+                 if (ams_ptr->now_filament_num < 4)
+                 {
+                     const uint8_t ch = ams_ptr->now_filament_num;
+                     const _filament_motion m = ams_ptr->filament[ch].motion;
 
-                    time_sendout_onuse_ticks[ch] = 0u;
+                     if (m == _filament_motion::on_use ||
+                         m == _filament_motion::before_on_use ||
+                         m == _filament_motion::stop_on_use)
+                     {
+                         return true;
+                     }
+                 }
 
-                    if (m == _filament_motion::before_pull_back ||
-                        m == _filament_motion::on_use ||
-                        m == _filament_motion::before_on_use ||
-                        m == _filament_motion::stop_on_use)
-                    {
-                        ams_ptr->filament[ch].motion = _filament_motion::pull_back;
-                        ams_ptr->filament_use_flag   = 0x02;
-                    }
+                 for (uint8_t i = 0; i < 4; i++)
+                 {
+                     ams_ptr->filament[i].motion = _filament_motion::idle;
+                     time_sendout_onuse_ticks[i] = 0u;
+                 }
 
-                    ams_ptr->pressure = 0x4700;
+                 ams_ptr->filament_use_flag = 0x00;
+                 ams_ptr->pressure          = 0xFFFF;
+                 ams_ptr->now_filament_num  = 0xFF;
 
-                    if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
-                        ams_state_set_unloaded(ch);
-                }
-            }
-            else if (statu_flags == 0x01)
-            {
-                if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
-                {
-                    const uint8_t ch = ams_ptr->now_filament_num;
-                    if (ch < 4 && ams_ptr->filament_use_flag != 0x04)
-                        ams_state_set_unloaded(ch);
-                }
-            }
-            else
-            {
-                if (ams_ptr->now_filament_num < 4)
-                {
-                    const uint8_t ch = ams_ptr->now_filament_num;
-                    const _filament_motion m = ams_ptr->filament[ch].motion;
-
-                    if (m == _filament_motion::on_use ||
-                        m == _filament_motion::before_on_use ||
-                        m == _filament_motion::stop_on_use)
-                    {
-                        return true;
-                    }
-                }
-
-                for (uint8_t i = 0; i < 4; i++)
-                {
-                    ams_ptr->filament[i].motion = _filament_motion::idle;
-                    time_sendout_onuse_ticks[i] = 0u;
-                }
-
-                ams_ptr->filament_use_flag = 0x00;
-                ams_ptr->pressure          = 0xFFFF;
-                ams_ptr->now_filament_num  = 0xFF;
-
-                if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
-                    ams_state_set_unloaded(0xFFu); // global clear
-            }
-        }
-    }
-    else if (bambubus_ams_address == host_device_type_ams_lite) // AMS lite
-    {
-        if (read_num < 4)
-        {
-            if ((statu_flags == 0x03) && (fliment_motion_flag == 0x3F)) // 03 3F
-            {
-                ams_ptr->filament[read_num].motion = _filament_motion::pull_back;
-                ams_ptr->filament_use_flag = 0x00;
-            }
-            else if ((statu_flags == 0x03) && (fliment_motion_flag == 0xBF)) // 03 BF
-            {
-                bus_now_ams_num = bambubus_ams_map[ams_num];
-
-                if (ams_ptr->filament[read_num].motion != _filament_motion::send_out)
-                {
-                    for (int i = 0; i < 4; i++) ams_ptr->filament[i].motion = _filament_motion::idle;
-                    ams_ptr->now_filament_num = read_num;
-                }
-
-                ams_ptr->filament[read_num].motion = _filament_motion::send_out;
-                ams_ptr->filament_use_flag = 0x02;
-            }
-            else if ((statu_flags == 0x07) && (fliment_motion_flag == 0x00)) // 07 00
-            {
-                bus_now_ams_num = bambubus_ams_map[ams_num];
-
-                if ((ams_ptr->filament[read_num].motion == _filament_motion::send_out) ||
-                    (ams_ptr->filament[read_num].motion == _filament_motion::idle))
-                {
-                    ams_ptr->filament[read_num].motion = _filament_motion::on_use;
-                    ams_ptr->filament[read_num].meters_virtual_count = 0;
-                    ams_ptr->now_filament_num = read_num;
-                }
-                else if (ams_ptr->filament[read_num].motion == _filament_motion::before_pull_back)
-                {
-                }
-                else if (ams_ptr->filament[read_num].meters_virtual_count < 10000)
-                {
-                    ams_ptr->filament[read_num].meters += (float)time_used / 300000;
-                    ams_ptr->filament[read_num].meters_virtual_count += time_used;
-                }
-
-                if (ams_ptr->filament[read_num].motion == _filament_motion::on_use)
-                {
-                    ams_ptr->filament_use_flag = 0x04;
-                }
-            }
-            else if ((statu_flags == 0x07) && (fliment_motion_flag == 0x66))
-            {
-                // ams_ptr->filament[read_num].motion = _filament_motion::before_pull_back;
-            }
-            else if ((statu_flags == 0x07) && (fliment_motion_flag == 0x26))
-            {
-                ams_ptr->filament_use_flag = 0x04;
-            }
-        }
-        else if ((read_num == 0xFF) && (statu_flags == 0x01))
-        {
-            if (ams_ptr->now_filament_num < 4)
-            {
-                if (ams_ptr->filament[ams_ptr->now_filament_num].motion != _filament_motion::on_use)
-                {
-                    for (int i = 0; i < 4; i++) ams_ptr->filament[i].motion = _filament_motion::idle;
-                    ams_ptr->filament_use_flag = 0x00;
-                }
-            }
-            else
-            {
-                for (int i = 0; i < 4; i++) ams_ptr->filament[i].motion = _filament_motion::idle;
-                ams_ptr->filament_use_flag = 0x00;
-            }
-            ams_ptr->now_filament_num = read_num;
-        }
-    }
+                 if (ams_num == (uint8_t)BAMBU_BUS_AMS_NUM)
+                     ams_state_set_unloaded(0xFFu); // global clear
+             }
+         }
+     }
     else if (bambubus_ams_address == 0x0000) // none
     {
     }
@@ -585,45 +482,49 @@ static const bambubus_ams_motion_package_struct _bambubus_ams_motion_package_str
 void get_package_motion(bambubus_printer_motion_package_struct *package_recv)
 {
     if (bus_port_to_host.send_data_len != 0) return;
-    uint8_t* out = bus_port_to_host.tx_build_buf();
+    uint8_t *out = bus_port_to_host.tx_build_buf();
 
     bambubus_printer_motion_package_struct in;
     memcpy(&in, package_recv, sizeof(in));
 
     const uint8_t ams_num = in.ams_num;
-    const uint8_t filament_channel = in.filamnet_channel;
+    if (ams_num >= 4u) return;
 
-    if ((ams_num >= 4) || (ams[bambubus_ams_map[ams_num]].online != true)) return;
+    const uint8_t ams_idx = bambubus_ams_map[ams_num];
+    if (!ams[ams_idx].online) return;
 
-    _ams *ams_ptr = &ams[bambubus_ams_map[ams_num]];
-    if (!set_motion(filament_channel, in.statu_flag, in.motion_flag, ams_num)) return;
+    _ams *ams_ptr = &ams[ams_idx];
+    if (!set_motion(in.filamnet_channel, in.statu_flag, in.motion_flag, ams_num)) return;
 
     auto *package_send = (bambubus_ams_motion_package_struct *)out;
     memcpy(package_send, &_bambubus_ams_motion_package_struct_init_data, sizeof(*package_send));
 
-    package_send->flag = 0xC0 | (package_num << 3);
+    const uint8_t  ch       = ams_ptr->now_filament_num;
+    const uint16_t pressure = ams_ptr->pressure;
+
+    package_send->flag = 0xC0u | (uint8_t)(package_num << 3);
     package_send->ams_num = ams_num;
     package_send->filament_use_flag = ams_ptr->filament_use_flag;
-    package_send->filament_channel = ams_ptr->now_filament_num;
-    package_send->filament_channel_2 = ams_ptr->now_filament_num;
+    package_send->filament_channel = ch;
+    package_send->filament_channel_2 = ch;
 
+    float meters = 1.0f;
+    if (ch < 4u)
     {
-        float meters = 1.0f;
-        uint16_t pressure = ams_ptr->pressure;
-
-        if ((ams_ptr->now_filament_num != 0xFFu) && (ams_ptr->now_filament_num < 4u))
-        {
-            meters = ams_ptr->filament[ams_ptr->now_filament_num].meters;
-            if (bambubus_ams_address == host_device_type_ams_lite) meters = -meters;
-        }
-
-        memcpy(&package_send->meters, &meters, sizeof(meters));
-        memcpy(&package_send->pressure, &pressure, sizeof(pressure));
-        package_send->filament_stu_flag = get_filament_left_char(ams_ptr);
+        meters = ams_ptr->filament[ch].meters;
     }
 
-    if (package_num < 7) package_num++;
-    else package_num = 0;
+    memcpy(&package_send->meters, &meters, sizeof(meters));
+    memcpy(&package_send->pressure, &pressure, sizeof(pressure));
+    package_send->filament_stu_flag = get_filament_left_char(ams_ptr);
+
+    if (pressure == 0xF06Fu)
+    {
+        package_send->pressure = 0xF06Fu;
+        package_send->unknow2 = 0x1CE7u;
+    }
+
+    package_num = (package_num < 7u) ? (uint8_t)(package_num + 1u) : 0u;
 
     package_add_crc(out, sizeof(bambubus_ams_motion_package_struct));
     bus_port_to_host.send_data_len = sizeof(bambubus_ams_motion_package_struct);
@@ -710,80 +611,88 @@ static const bambubus_ams_stu_motion_package_struct _bambubus_ams_stu_motion_pac
 void get_package_stu_motion(bambubus_printer_stu_motion_package_struct *package_recv)
 {
     if (bus_port_to_host.send_data_len != 0) return;
-    uint8_t* out = bus_port_to_host.tx_build_buf();
+    uint8_t *out = bus_port_to_host.tx_build_buf();
 
     bambubus_printer_stu_motion_package_struct in;
     memcpy(&in, package_recv, sizeof(in));
 
-    unsigned char filament_flag_on = 0x00;
+    unsigned char filament_flag_on  = 0x00;
     unsigned char filament_flag_NFC = 0x00;
+
     const uint8_t ams_num = in.ams_num;
-    const uint8_t filament_channel = in.filamnet_channel;
+    if (ams_num >= 4u) return;
 
-    if ((ams_num >= 4) || (ams[bambubus_ams_map[ams_num]].online != true))
-        return;
+    const uint8_t ams_idx = bambubus_ams_map[ams_num];
+    if (!ams[ams_idx].online) return;
 
-    _ams *ams_ptr = &ams[bambubus_ams_map[ams_num]];
+    _ams *ams_ptr = &ams[ams_idx];
 
-    for (int i = 0; i < 4; i++)
-        if (ams_ptr->filament[i].online == true)
+    for (uint8_t i = 0; i < 4u; i++)
+        if (ams_ptr->filament[i].online)
             filament_flag_on |= (uint8_t)(1u << i);
 
-    if (!set_motion(filament_channel, in.statu_flag, in.motion_flag, ams_num))
-        return;
+    if (!set_motion(in.filamnet_channel, in.statu_flag, in.motion_flag, ams_num)) return;
 
-    bambubus_ams_stu_motion_package_struct *package_send = (bambubus_ams_stu_motion_package_struct *)out;
+    auto *package_send = (bambubus_ams_stu_motion_package_struct *)out;
     memcpy(package_send, &_bambubus_ams_stu_motion_package_struct_init_data, sizeof(*package_send));
 
-    int16_t temperature = (ams_ptr->filament[0].compartment_temperature);
-    temperature += (ams_ptr->filament[1].compartment_temperature);
-    temperature += (ams_ptr->filament[2].compartment_temperature);
-    temperature += (ams_ptr->filament[3].compartment_temperature);
+    int16_t temperature = (int16_t)(
+        ams_ptr->filament[0].compartment_temperature +
+        ams_ptr->filament[1].compartment_temperature +
+        ams_ptr->filament[2].compartment_temperature +
+        ams_ptr->filament[3].compartment_temperature
+    );
     temperature = (int16_t)(temperature * 10);
     if (temperature < 0) temperature = 0;
     temperature = (int16_t)(temperature >> 2);
 
-    uint16_t humidity = (ams_ptr->filament[0].compartment_humidity);
-    humidity += (ams_ptr->filament[1].compartment_humidity);
-    humidity += (ams_ptr->filament[2].compartment_humidity);
-    humidity += (ams_ptr->filament[3].compartment_humidity);
+    uint16_t humidity = (uint16_t)(
+        ams_ptr->filament[0].compartment_humidity +
+        ams_ptr->filament[1].compartment_humidity +
+        ams_ptr->filament[2].compartment_humidity +
+        ams_ptr->filament[3].compartment_humidity
+    );
     humidity = (uint16_t)(humidity >> 2);
 
-    package_send->flag = 0xC0 | (package_num << 3);
+    const uint8_t  ch       = ams_ptr->now_filament_num;
+    const uint16_t pressure = ams_ptr->pressure;
+
+    package_send->flag = 0xC0u | (uint8_t)(package_num << 3);
     package_send->ams_num_stu = ams_num;
     package_send->temperature = (uint16_t)temperature;
     package_send->humidity = (uint8_t)humidity;
 
-    package_send->filament_online_flag[0] = (uint8_t)(filament_flag_on - filament_flag_NFC);
-    package_send->filament_online_flag[1] = (uint8_t)(filament_flag_on - filament_flag_NFC);
-    package_send->filament_online_flag[2] = (uint8_t)(filament_flag_on - filament_flag_NFC);
+    const uint8_t on = (uint8_t)(filament_flag_on - filament_flag_NFC);
+    package_send->filament_online_flag[0] = on;
+    package_send->filament_online_flag[1] = on;
+    package_send->filament_online_flag[2] = on;
 
-    package_send->filament_channel_stu = filament_channel;
+    package_send->filament_channel_stu = in.filamnet_channel;
     package_send->filament_flag_wait_NFC = filament_flag_NFC;
 
     package_send->ams_num = ams_num;
     package_send->filament_use_flag = ams_ptr->filament_use_flag;
-    package_send->filament_channel = ams_ptr->now_filament_num;
+    package_send->filament_channel = ch;
 
+    float meters = 1.0f;
+    if (ch < 4u)
     {
-        float meters = 1.0f;
-        uint16_t pressure = ams_ptr->pressure;
+        meters = ams_ptr->filament[ch].meters;
+    }
 
-        if ((ams_ptr->now_filament_num != 0xFFu) && (ams_ptr->now_filament_num < 4u))
-        {
-            meters = ams_ptr->filament[ams_ptr->now_filament_num].meters;
-            if (bambubus_ams_address == host_device_type_ams_lite) meters = -meters;
-        }
+    memcpy(&package_send->meters, &meters, sizeof(meters));
+    memcpy(&package_send->pressure, &pressure, sizeof(pressure));
+    package_send->filament_stu_flag = get_filament_left_char(ams_ptr);
 
-        memcpy(&package_send->meters, &meters, sizeof(meters));
-        memcpy(&package_send->pressure, &pressure, sizeof(pressure));
-        package_send->filament_stu_flag = get_filament_left_char(ams_ptr);
+    if (pressure == 0xF06Fu)
+    {
+        package_send->pressure = 0xF06Fu;
+        package_send->unknow2 = 0x1CE7u;
     }
 
     package_add_crc(out, sizeof(bambubus_ams_stu_motion_package_struct));
 
-    if (package_num < 7) package_num++;
-    else package_num = 0;
+    package_num = (package_num < 7u) ? (uint8_t)(package_num + 1u) : 0u;
 
     bus_port_to_host.send_data_len = sizeof(bambubus_ams_stu_motion_package_struct);
 }
@@ -968,7 +877,7 @@ void get_package_long_packge_serial_number(unsigned char *buf, int length)
     }
     long_packge_version_serial_number[4] = 0x30 + ams_num; // 防止SN重复
     long_packge_version_serial_number[34] = 0xA0 + ams_num;
-    if ((bambubus_ams_address != host_device_type_ams) && (bambubus_ams_address != host_device_type_ams_lite))
+    if (bambubus_ams_address != host_device_type_ams)
     {
         return;
     }
@@ -987,8 +896,6 @@ void get_package_long_packge_serial_number(unsigned char *buf, int length)
     bambubus_long_package_get(&data);
 }
 
-unsigned char long_packge_version_version_and_name_AMS_lite[] = {0x00, 0x00, 0x00, 0x3C, // verison number
-                                                                 0x41, 0x4D, 0x53, 0x5F, 0x46, 0x31, 0x30, 0x32, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 //0x0A // 10
 //0x14 // 20
 //0x1E // 30
@@ -998,8 +905,13 @@ unsigned char long_packge_version_version_and_name_AMS_lite[] = {0x00, 0x00, 0x0
 //0x46 // 70
 //0x50 // 80
 //0x5A // 90
-unsigned char long_packge_version_version_and_name_AMS08[] = {0x00, 0x00, 0x00, 0x5A , // verison number
+unsigned char long_packge_version_version_and_name_AMS08[] = {0x00, 0x00, 0x0A, 0x5A , // verison number
                                                               0x41, 0x4D, 0x53, 0x30, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+//unsigned char long_packge_version_version_and_name_AMS2PRO[] = {
+//    0x00, 0x00, 0x00, 0x5A,
+//    0x4E, 0x33, 0x46, 0x30, 0x35, 0x00, 0x00, 0x00,
+//    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+//};
 
 
 void get_package_long_packge_version(unsigned char *buf, int length)
@@ -1016,20 +928,13 @@ void get_package_long_packge_version(unsigned char *buf, int length)
     unsigned char *payload = nullptr;
     uint16_t payload_len = 0;
 
-    if (bambubus_ams_address == host_device_type_ams)
-    {
-        payload = long_packge_version_version_and_name_AMS08;
-        payload_len = (uint16_t)sizeof(long_packge_version_version_and_name_AMS08);
-    }
-    else if (bambubus_ams_address == host_device_type_ams_lite)
-    {
-        payload = long_packge_version_version_and_name_AMS_lite;
-        payload_len = (uint16_t)sizeof(long_packge_version_version_and_name_AMS_lite);
-    }
-    else
+    if (bambubus_ams_address != host_device_type_ams)
     {
         return;
     }
+
+    payload = long_packge_version_version_and_name_AMS08;
+    payload_len = (uint16_t)sizeof(long_packge_version_version_and_name_AMS08);
 
     payload[payload_len - 1] = ams_num;
 
