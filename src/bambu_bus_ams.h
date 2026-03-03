@@ -1,10 +1,7 @@
 #pragma once
 #include <stdint.h>
 
-//#define AMS_type_ams_lite
-#define AMS_type_ams
-
-enum class bambubus_package_type 
+enum class bambubus_package_type
 {
     error = -1,
     none = 0,

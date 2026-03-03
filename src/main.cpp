@@ -36,7 +36,7 @@ void RGB_update()
     if (!period)
     {
         const uint32_t tpm = time_hw_ticks_per_ms();
-        uint64_t p = (uint64_t)tpm * 10ull;           // 10ms
+        uint64_t p = (uint64_t)tpm * 10ull;
         period = (p ? p : 1ull);
     }
 
@@ -112,6 +112,11 @@ bool ams_datas_read()
     return any;
 }
 
+void ams_datas_set_need_to_save()
+{
+    g_fil_dirty |= 0x0F;
+}
+
 void ams_datas_set_need_to_save_filament(uint8_t filament_idx)
 {
     if (filament_idx >= 4) return;
@@ -143,7 +148,10 @@ static void ams_state_save_run()
 {
     if (!g_state_dirty) return;
 
-    if (Flash_AMS_state_write(g_loaded_ch, nullptr))
+    Flash_FilamentInfo fi0;
+    ram_to_flashinfo(0, &fi0);
+
+    if (Flash_AMS_state_write(g_loaded_ch, &fi0))
         g_state_dirty = 0;
 }
 
@@ -229,45 +237,42 @@ int main(void)
     DEBUG("START\n");
 
     while (1)
+    {
+        const ahubus_package_type   ahub_stu     = ahubus_run();
+        const bambubus_package_type bambubus_stu = bambubus_run();
+        bus_port_to_host.send_package();
+
+        static int error = 0;
+
+        if ((ahub_stu != ahubus_package_type::none) || (bambubus_stu != bambubus_package_type::none))
         {
-            const ahubus_package_type   ahub_stu     = ahubus_run();
-            const bambubus_package_type bambubus_stu = bambubus_run();
-            bus_port_to_host.send_package();
-
-            static int error = 0;
-            const uint16_t device_type = bambubus_ams_address;
-
-            if ((ahub_stu != ahubus_package_type::none) || (bambubus_stu != bambubus_package_type::none))
+            if ((ahub_stu != ahubus_package_type::error) || (bambubus_stu != bambubus_package_type::error))
             {
-                if ((ahub_stu != ahubus_package_type::error) || (bambubus_stu != bambubus_package_type::error))
+                error = 0;
+
+                if (bambubus_stu == bambubus_package_type::heartbeat)
                 {
-                    error = 0;
-
-                    if (bambubus_stu == bambubus_package_type::heartbeat)
-                    {
-                        SYS_RGB.set_RGB(0x38, 0x35, 0x32, 0);
-                        if (device_type == host_device_type_ams_lite) bus_host_device_type = host_device_type_ams_lite;
-                        else if (device_type == host_device_type_ams)  bus_host_device_type = host_device_type_ams;
-                    }
-
-                    if (ahub_stu == ahubus_package_type::heartbeat)
-                    {
-                        SYS_RGB.set_RGB(0x00, 0x10, 0x00, 0);
-                        bus_host_device_type = host_device_type_ahub;
-                    }
-
-                    ams_datas_save_run();
-                    ams_state_save_run();
+                    SYS_RGB.set_RGB(0x38, 0x35, 0x32, 0);
+                    bus_host_device_type = host_device_type_ams;
                 }
-                else
+
+                if (ahub_stu == ahubus_package_type::heartbeat)
                 {
-                    error = -1;
-                    SYS_RGB.set_RGB(0x10, 0x00, 0x00, 0);
+                    bus_host_device_type = host_device_type_ahub;
                 }
+
+                ams_datas_save_run();
+                ams_state_save_run();
             }
-
-            ADC_DMA_poll();
-            Motion_control_run(error);
-            RGB_update();
+            else
+            {
+                error = -1;
+                SYS_RGB.set_RGB(0x10, 0x00, 0x00, 0);
+            }
         }
+
+        ADC_DMA_poll();
+        Motion_control_run(error);
+        RGB_update();
+    }
 }

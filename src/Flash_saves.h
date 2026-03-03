@@ -10,17 +10,12 @@
 
 #define FLASH_NVM_CAL_ADDR    (FLASH_NVM_BASE_ADDR + 0x000) // 1x256B
 #define FLASH_NVM_MOTION_ADDR (FLASH_NVM_BASE_ADDR + 0x100) // 1x256B
-
-// FILAMENT:
-// - pages 2..5  (0x200..0x5FF) 4x256B (A)
-// - pages 6..9  (0x600..0x9FF) 4x256B (B)
-#define FLASH_NVM_AMS_ADDR    (FLASH_NVM_BASE_ADDR + 0x200) // 4x256B (0..3) page A
-#define FLASH_NVM_AMS2_ADDR   (FLASH_NVM_BASE_ADDR + 0x600) // 4x256B (0..3) page B
+#define FLASH_NVM_AMS_ADDR    (FLASH_NVM_BASE_ADDR + 0x200) // 4x256B (0..3) => do +0x5FF
 
 #define FLASH_NVM256_PAGE_SIZE (256u)
 #define NVM256_CRC_OFF         (252u)
 
-// Magici / wersje (stare nvm256)
+// Magici / wersje
 static constexpr uint32_t MAGIC_FIL = 0x314C4946u; // 'FIL1'
 static constexpr uint32_t MAGIC_CAL = 0x324C4143u; // 'CAL2'
 static constexpr uint32_t MAGIC_MOT = 0x31544F4Du; // 'MOT1'
@@ -49,7 +44,7 @@ struct __attribute__((packed, aligned(4))) Flash_FilamentInfo
 
 void Flash_saves_init(void);
 
-// AMS: 4x (2x256B log per filament)
+// AMS: 4x 256B
 bool Flash_AMS_filament_read(uint8_t filament_idx, Flash_FilamentInfo* out);
 bool Flash_AMS_filament_write(uint8_t filament_idx, const Flash_FilamentInfo* info, uint8_t loaded_channel);
 bool Flash_AMS_filament_clear(uint8_t filament_idx);
