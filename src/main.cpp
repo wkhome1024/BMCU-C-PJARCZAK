@@ -112,11 +112,6 @@ bool ams_datas_read()
     return any;
 }
 
-void ams_datas_set_need_to_save()
-{
-    g_fil_dirty |= 0x0F;
-}
-
 void ams_datas_set_need_to_save_filament(uint8_t filament_idx)
 {
     if (filament_idx >= 4) return;
@@ -148,10 +143,7 @@ static void ams_state_save_run()
 {
     if (!g_state_dirty) return;
 
-    Flash_FilamentInfo fi0;
-    ram_to_flashinfo(0, &fi0);
-
-    if (Flash_AMS_state_write(g_loaded_ch, &fi0))
+    if (Flash_AMS_state_write(g_loaded_ch, nullptr))
         g_state_dirty = 0;
 }
 

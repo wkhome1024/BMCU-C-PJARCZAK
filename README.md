@@ -47,18 +47,23 @@ Start by selecting the correct printer mode folder first (standard(A1) or high_f
 
 ## Flashing
 
-Flashing tutorial:
-https://wiki.yuekai.fr/BMCU/BMCU_Tutorial/BMCU_Flashing
+To flash any version of the BMCU (USB or TTL) on:
+
+- Windows
+- Linux
+- macOS
+
+use my official cross-platform flasher:
+
+https://github.com/jarczakpawel/BMCU-Flasher
+
+Precompiled binaries are available in the "Releases" section.
+
+The flashing process is very simple and does not require wchisptool.
 
 IMPORTANT:
-- Use **wchisptool-v3.3** exactly as shown in the tutorial (do not use newer versions).
 - Do NOT flash the BMCU while it is connected to the printer.
-- Do NOT connect/disconnect the BMCU while the printer is powered on (risk of damaging the BMCU and/or the printer mainboard).
-
-Please do not ask me how to flash the BMCU.
-I receive too many such questions - this is documented online and should be asked elsewhere if needed.
-
----
+- Do NOT connect or disconnect the BMCU while the printer is powered on (risk of damaging the BMCU and/or the printer mainboard).
 
 ## Folder structure (generated firmware)
 
@@ -236,6 +241,17 @@ This firmware has undergone solid testing, and no issues are expected.
 ---
 
 # Changelog
+
+## V10
+
+### User-visible changes
+- Improved spool jam handling: jam is detected immediately, the print is paused, the printer waits for you to fix the snag/tangle, then you can resume normally without ruining the print.
+
+### Flash / persistence (wear + reliability)
+- State (loaded channel) persistence reworked into an append-only slot log: 8 bytes per update, up to 192 updates before any page erase (~192x fewer erase cycles vs rewriting a whole 256B page per update).
+- Filament metadata persistence reworked into a small CRC-protected log: 64B per update, 2 pages per filament (8 records) -> ~8x fewer erase cycles vs erasing a whole 256B page on every change.
+- Per-filament saves: only the modified channel is written (reduces unnecessary flash writes).
+- Power-loss safe commits: records are validated and partially-written data is ignored.
 
 ## V9
 

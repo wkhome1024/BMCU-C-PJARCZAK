@@ -1,0 +1,46 @@
+#######   ##     ##   #######   ##     ##
+##    ##  ###   ###  ##     ##  ##     ##
+##    ##  #### ####  ##         ##     ##
+#######   ## ### ##  ##         ##     ##
+##    ##  ##     ##  ##         ##     ##
+##    ##  ##     ##  ##     ##  ##     ##
+#######   ##     ##   #######    #######
+
+
+Which firmware folder should I choose here?
+Choose between: standard(A1) or high_force_load(P1S)
+
+--------------------------------------------------------------------------
+
+standard(A1)
+- Recommended for: Bambu Lab A1 (and most other setups) where filament does NOT require high pushing force to load.
+- Choose this if: the PTFE tube between the BMCU and the printer is short and relatively straight (low friction).
+- Goal: normal load force and standard pressure behavior.
+
+high_force_load(P1S)
+- Recommended for: Bambu Lab P1S (and similar printers/setups) where PTFE routing is long and has multiple bends.
+- This mode uses: much stronger motor force during filament loading, and slightly higher pressure/holding behavior during printing to compensate for higher friction.
+- Choose this if:
+  - you have a P1S (typical long, curved PTFE path), or
+  - your PTFE path is long/complex (many bends), even on A1, or
+  - you experience loading problems such as rejected/failed load events (most commonly caused by too little pushing force during loading).
+
+If you’re unsure:
+- Start with standard(A1).
+- If loading is inconsistent or gets rejected, switch to high_force_load(P1S).
+
+--------------------------------------------------------------------------
+
+
+[::] All modifications by Pawel Jarczak
+[::] Also thanks to everyone on Reddit who tested this firmware on many different BMCU 370C builds.
+[::] Special thanks to Remote-Trash4593 (Reddit) for the huge effort: extensive testing + detailed documentation.
+
+[::] May compatibility with BambuLab last as long as possible.
+[::] If they ever block this last lifeboat:
+[::] - We should sell our printers and switch brands, defending our right to ownership and choice.
+[::] - When many of us bought these printers, BMCU was supported without restrictions; limits appeared only after purchase.
+[::] - BMCU was a key reason to buy; for many people AMS is too big, too expensive, and still has plenty of issues.
+[::] - The market is full of amazing 3D printers that do not lock users out - and for many of us, a 3D printer is a critical work tool.
+[::] - Open BMCU firmware gives us real freedom, and we should demand that freedom be respected.
+

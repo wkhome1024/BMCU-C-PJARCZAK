@@ -302,7 +302,10 @@ void ahubus_slave_get_package_set(uint8_t *buf)
         const uint8_t filament_channel = data_ptr[48];
         if (filament_channel >= 4) return;
         memcpy(&(ams[set_adr].filament[filament_channel].bambubus_filament_id), data_ptr + 4, 44);
-        ams_datas_set_need_to_save();
+
+        if (set_adr == (uint8_t)BAMBU_BUS_AMS_NUM)
+            ams_datas_set_need_to_save_filament(filament_channel);
+
         break;
     }
     case ahubus_set_type::dryer_stu:
