@@ -17,6 +17,12 @@ If you flashed it with filament inserted:
 - remove all filament
 - hold any one buffer for about **5 seconds** to re-calibrate
 
+# ❗ Warning for 2nd generation printers
+A lot of people make a mistake because the drawings are misleading, and it is not always clear from the diagrams whether they show the plug or the socket. As a result, Signal A and Signal B often get connected the wrong way around.
+
+If your BMCU is not detected by a 2nd generation printer, try swapping Signal A and Signal B - but make sure you know exactly what you are doing.
+
+
 # HMS WARNING STATUS
 
 This firmware version **triggers an HMS warning immediately after printer startup**.
@@ -40,14 +46,17 @@ https://github.com/jarczakpawel/BambuStudio-BMCU
 
 ## Supported printers
 
-- Bambu Lab A1
-- Bambu Lab A1 mini
-- Bambu Lab P1S
-- Bambu Lab X1C
-- Bambu Lab P2S
-- The **H2 series** will most likely also work as well, because **1st generation AMS support** is confirmed there.
+Correct operation has been confirmed on both 1st generation and 2nd generation printers.
 
-Other printers may also work, but they have not been tested.
+### 1st generation printers
+Support is confirmed for 1st generation printers.
+
+### 2nd generation printers
+Correct operation has been confirmed on:
+- Bambu Lab P2S
+- Bambu Lab H2D
+
+At this point, it looks like it should work on all printers from both generations.
 
 ---
 
